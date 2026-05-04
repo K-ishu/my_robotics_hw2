@@ -49,6 +49,16 @@ def generate_launch_description():
         ],
     )
 
+    set_pose_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="aruco_set_pose_bridge",
+        output="screen",
+        arguments=[
+            "/world/iiwa_aruco_world/set_pose@ros_gz_interfaces/srv/SetEntityPose@ignition.msgs.Pose@ignition.msgs.Boolean",
+        ],
+    )
+
     aruco_single = Node(
         package="aruco_ros",
         executable="single",
@@ -85,5 +95,6 @@ def generate_launch_description():
 
         gz_sim,
         camera_bridge,
+        set_pose_bridge,
         aruco_single,
     ])
