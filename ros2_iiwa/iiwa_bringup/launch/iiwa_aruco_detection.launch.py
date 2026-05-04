@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, EnvironmentVariable
 from launch_ros.actions import Node
@@ -55,7 +55,7 @@ def generate_launch_description():
         name="aruco_set_pose_bridge",
         output="screen",
         arguments=[
-            "/world/iiwa_aruco_world/set_pose@ros_gz_interfaces/srv/SetEntityPose@ignition.msgs.Pose@ignition.msgs.Boolean",
+            "/world/iiwa_aruco_world/set_pose@ros_gz_interfaces/srv/SetEntityPose@ignition.msgs.Pose@ignition.msgs.Boolean@ignition.msgs.Pose@ignition.msgs.Boolean",
         ],
     )
 
@@ -95,6 +95,6 @@ def generate_launch_description():
 
         gz_sim,
         camera_bridge,
-        set_pose_bridge,
+        TimerAction(period=5.0, actions=[set_pose_bridge]),
         aruco_single,
     ])
