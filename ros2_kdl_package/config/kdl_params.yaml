@@ -1,0 +1,17 @@
+ros2_kdl_node:
+  ros__parameters:
+    cmd_interface: velocity
+    traj_type: linear
+    s_type: trapezoidal
+
+    traj_duration: 1.5
+    acc_duration: 0.5
+    total_time: 1.5
+    trajectory_len: 150
+    Kp: 5.0
+
+    # If all three components are 0.0, the node uses the original default endpoint:
+    # [initial_x, -initial_y, initial_z]
+    end_position_x: 0.0
+    end_position_y: 0.0
+    end_position_z: 0.0

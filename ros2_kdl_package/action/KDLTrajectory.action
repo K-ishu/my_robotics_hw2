@@ -1,0 +1,7 @@
+bool start
+---
+bool success
+string message
+---
+float64 time
+float64 error_norm
