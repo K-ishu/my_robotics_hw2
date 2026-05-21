@@ -19,8 +19,6 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 
 #include "rclcpp/rclcpp.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
-#include "ros2_kdl_package/action/kdl_trajectory.hpp"
 #include "rclcpp/wait_for_message.hpp"
 
 #include "kdl_robot.h"
@@ -35,10 +33,6 @@ using namespace std::chrono_literals;
 class Iiwa_pub_sub : public rclcpp::Node
 {
     public:
-
-        using KDLTrajectory = ros2_kdl_package::action::KDLTrajectory;
-        using GoalHandleKDLTrajectory = rclcpp_action::ServerGoalHandle<KDLTrajectory>;
-
         Iiwa_pub_sub()
         : Node("ros2_kdl_node"), 
         node_handle_(std::shared_ptr<Iiwa_pub_sub>(this, [](Iiwa_pub_sub*){}))
@@ -77,7 +71,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             declare_parameter<double>("total_time", 1.5);
             declare_parameter<int>("trajectory_len", 150);
             declare_parameter<double>("Kp", 5.0);
-            declare_parameter<bool>("use_action_server", false);
 
             declare_parameter<double>("end_position_x", 0.0);
             declare_parameter<double>("end_position_y", 0.0);
@@ -124,18 +117,7 @@ class Iiwa_pub_sub : public rclcpp::Node
             // Homework 2 controller selector
             declare_parameter("ctrl", "velocity_ctrl");
             get_parameter("ctrl", ctrl_);
-            get_parameter("use_action_server", use_action_server_);
-            RCLCPP_INFO(this->get_logger(), "Action server mode parameter: %s", use_action_server_ ? "true" : "false");
-            action_active_ = !use_action_server_;
             RCLCPP_INFO(get_logger(),"Current controller is: '%s'", ctrl_.c_str());
-            action_server_ = rclcpp_action::create_server<KDLTrajectory>(
-                this,
-                "kdl_trajectory",
-                std::bind(&Iiwa_pub_sub::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
-                std::bind(&Iiwa_pub_sub::handle_cancel, this, std::placeholders::_1),
-                std::bind(&Iiwa_pub_sub::handle_accepted, this, std::placeholders::_1));
-
-            RCLCPP_INFO(this->get_logger(), "KDL action server created on /kdl_trajectory");
 
             if (!(ctrl_ == "velocity_ctrl" || ctrl_ == "velocity_ctrl_null" || ctrl_ == "vision"))
             {
@@ -147,7 +129,7 @@ class Iiwa_pub_sub : public rclcpp::Node
             joint_state_available_ = false; 
 
             // retrieve robot_description param
-            auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(this, "/robot_state_publisher");
+            auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(node_handle_, "robot_state_publisher");
             while (!parameters_client->wait_for_service(1s)) {
                 if (!rclcpp::ok()) {
                     RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service. Exiting.");
@@ -247,20 +229,7 @@ class Iiwa_pub_sub : public rclcpp::Node
             if(cmd_interface_ == "position"){
                 // Create cmd publisher
                 cmdPublisher_ = this->create_publisher<FloatArray>("/iiwa_arm_controller/commands", 10);
-                
-            action_server_ = rclcpp_action::create_server<KDLTrajectory>(
-                this,
-                "kdl_trajectory",
-                std::bind(&Iiwa_pub_sub::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
-                std::bind(&Iiwa_pub_sub::handle_cancel, this, std::placeholders::_1),
-                std::bind(&Iiwa_pub_sub::handle_accepted, this, std::placeholders::_1));
-
-            if (use_action_server_)
-            {
-                RCLCPP_INFO(this->get_logger(), "KDL action server enabled. Waiting for action goal...");
-            }
-
-            timer_ = this->create_wall_timer(std::chrono::milliseconds(100), 
+                timer_ = this->create_wall_timer(std::chrono::milliseconds(100), 
                                             std::bind(&Iiwa_pub_sub::cmd_publisher, this));
             
                 // Send joint position commands
@@ -296,24 +265,12 @@ class Iiwa_pub_sub : public rclcpp::Node
             cmd_msg.data = desired_commands_;
             cmdPublisher_->publish(cmd_msg);
 
-            if (use_action_server_ && !action_active_)
-            {
-                RCLCPP_INFO_ONCE(this->get_logger(), "Action server mode enabled: waiting for /kdl_trajectory goal.");
-                return;
-            }
-
             RCLCPP_INFO(this->get_logger(), "Starting trajectory execution ...");
         }
 
     private:
 
         void cmd_publisher(){
-
-            if (use_action_server_ && !action_active_)
-            {
-                return;
-            }
-
 
             iteration_ = iteration_ + 1;
 
@@ -366,7 +323,6 @@ class Iiwa_pub_sub : public rclcpp::Node
                 Eigen::Vector3d error = computeLinearError(p_.pos, Eigen::Vector3d(cartpos.p.data));
                 Eigen::Vector3d o_error = computeOrientationError(toEigen(init_cart_pose_.M), toEigen(cartpos.M));
                 std::cout << "The error norm is : " << error.norm() << std::endl;
-                publish_action_feedback(t_, error.norm());
 
                 if(cmd_interface_ == "position"){
                     // Next Frame
@@ -448,7 +404,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             }
             else{
                 RCLCPP_INFO_ONCE(this->get_logger(), "Trajectory executed successfully ...");
-                finish_action(true, "Trajectory executed successfully");
                 
                 // Send joint velocity commands
                 if(cmd_interface_ == "position"){
@@ -477,94 +432,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             }
         }
 
-
-        rclcpp_action::GoalResponse handle_goal(
-            const rclcpp_action::GoalUUID& uuid,
-            std::shared_ptr<const KDLTrajectory::Goal> goal)
-        {
-            (void)uuid;
-
-            if (!use_action_server_)
-            {
-                RCLCPP_WARN(this->get_logger(), "Action goal rejected because use_action_server is false.");
-                return rclcpp_action::GoalResponse::REJECT;
-            }
-
-            if (!goal->start)
-            {
-                RCLCPP_WARN(this->get_logger(), "Action goal rejected because start=false.");
-                return rclcpp_action::GoalResponse::REJECT;
-            }
-
-            if (action_active_)
-            {
-                RCLCPP_WARN(this->get_logger(), "Action goal rejected because another trajectory is active.");
-                return rclcpp_action::GoalResponse::REJECT;
-            }
-
-            RCLCPP_INFO(this->get_logger(), "Action goal accepted.");
-            return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
-        }
-
-        rclcpp_action::CancelResponse handle_cancel(
-            const std::shared_ptr<GoalHandleKDLTrajectory> goal_handle)
-        {
-            (void)goal_handle;
-            RCLCPP_INFO(this->get_logger(), "Action cancel request accepted.");
-            action_active_ = false;
-            return rclcpp_action::CancelResponse::ACCEPT;
-        }
-
-        void handle_accepted(const std::shared_ptr<GoalHandleKDLTrajectory> goal_handle)
-        {
-            active_goal_ = goal_handle;
-            iteration_ = 0;
-            t_ = 0.0;
-            action_active_ = true;
-
-            if (joint_state_available_)
-            {
-                init_cart_pose_ = robot_->getEEFrame();
-            }
-
-            RCLCPP_INFO(this->get_logger(), "Action trajectory execution started.");
-        }
-
-        void publish_action_feedback(double time_value, double error_value)
-        {
-            if (use_action_server_ && action_active_ && active_goal_)
-            {
-                auto feedback = std::make_shared<KDLTrajectory::Feedback>();
-                feedback->time = time_value;
-                feedback->error_norm = error_value;
-                active_goal_->publish_feedback(feedback);
-            }
-        }
-
-        void finish_action(bool success, const std::string& message)
-        {
-            if (use_action_server_ && action_active_ && active_goal_)
-            {
-                auto result = std::make_shared<KDLTrajectory::Result>();
-                result->success = success;
-                result->message = message;
-
-                if (success)
-                {
-                    active_goal_->succeed(result);
-                }
-                else
-                {
-                    active_goal_->abort(result);
-                }
-
-                RCLCPP_INFO(this->get_logger(), "Action finished: %s", message.c_str());
-            }
-
-            action_active_ = false;
-            active_goal_.reset();
-        }
-
         void joint_state_subscriber(const sensor_msgs::msg::JointState& sensor_msg){
 
             // for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
@@ -591,8 +458,6 @@ class Iiwa_pub_sub : public rclcpp::Node
         rclcpp::TimerBase::SharedPtr timer_; 
         rclcpp::TimerBase::SharedPtr subTimer_;
         rclcpp::Node::SharedPtr node_handle_;
-        rclcpp_action::Server<KDLTrajectory>::SharedPtr action_server_;
-        std::shared_ptr<GoalHandleKDLTrajectory> active_goal_;
 
         std::vector<double> desired_commands_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
         KDL::JntArray joint_positions_;
@@ -610,8 +475,6 @@ class Iiwa_pub_sub : public rclcpp::Node
 
         int iteration_;
         bool joint_state_available_;
-        bool use_action_server_;
-        bool action_active_;
         double t_;
         std::string cmd_interface_;
         std::string traj_type_;

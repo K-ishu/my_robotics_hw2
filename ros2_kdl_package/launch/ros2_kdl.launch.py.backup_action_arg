@@ -1,0 +1,60 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description():
+    params_file_arg = DeclareLaunchArgument(
+        'params_file',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('ros2_kdl_package'),
+            'config',
+            'kdl_params.yaml'
+        ]),
+        description='Path to the YAML file containing ros2_kdl_node parameters'
+    )
+
+    ctrl_arg = DeclareLaunchArgument(
+        'ctrl',
+        default_value='velocity_ctrl',
+        choices=['velocity_ctrl', 'velocity_ctrl_null'],
+        description='Controller selection used in Step 1.b'
+    )
+
+    log_path_arg = DeclareLaunchArgument(
+        'log_path',
+        default_value='/tmp/kdl_control_log.csv',
+        description='CSV output path for controller log data'
+    )
+
+    use_action_server_arg = DeclareLaunchArgument(
+        'use_action_server',
+        default_value='false',
+        choices=['true', 'false'],
+        description='Enable action server execution mode'
+    )
+
+    ros2_kdl_node = Node(
+        package='ros2_kdl_package',
+        executable='ros2_kdl_node',
+        name='ros2_kdl_node',
+        output='screen',
+        parameters=[
+            LaunchConfiguration('params_file'),
+            {"use_action_server": LaunchConfiguration("use_action_server"), 
+                'ctrl': LaunchConfiguration('ctrl'),
+                'log_path': LaunchConfiguration('log_path'),
+                'use_action_server': LaunchConfiguration('use_action_server')
+            }
+        ]
+    )
+
+    return LaunchDescription([
+        params_file_arg,
+        ctrl_arg,
+        log_path_arg,
+        use_action_server_arg,
+        ros2_kdl_node
+    ])

@@ -65,6 +65,23 @@ install(TARGETS ros2_kdl_node_example
   DESTINATION lib/${PROJECT_NAME})
 
 
+
+add_executable(kdl_action_client src/kdl_action_client.cpp)
+target_include_directories(kdl_action_client PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIRS})
+target_compile_features(kdl_action_client PUBLIC c_std_99 cxx_std_17)
+
+ament_target_dependencies(kdl_action_client
+  rclcpp
+  rclcpp_action)
+
+target_link_libraries(kdl_action_client "${cpp_typesupport_target}")
+
+install(TARGETS kdl_action_client
+  DESTINATION lib/${PROJECT_NAME})
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
