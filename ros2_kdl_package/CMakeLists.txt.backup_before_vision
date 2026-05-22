@@ -12,7 +12,6 @@ find_package(urdf REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
@@ -41,7 +40,6 @@ ament_target_dependencies(ros2_kdl_node
   rclcpp_action
   kdl_parser
   sensor_msgs
-  geometry_msgs
   std_msgs)
 
 install(TARGETS ros2_kdl_node

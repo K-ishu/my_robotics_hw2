@@ -16,9 +16,7 @@
 #include <vector>
 
 #include "std_msgs/msg/float64_multi_array.hpp"
-#include "std_msgs/msg/string.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -126,15 +124,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             // Homework 2 controller selector
             declare_parameter("ctrl", "velocity_ctrl");
             get_parameter("ctrl", ctrl_);
-
-            aruco_pose_available_ = false;
-            aruco_position_camera_.setZero();
-
-            arucoSubscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-                "/aruco_single/pose", 10,
-                std::bind(&Iiwa_pub_sub::aruco_pose_subscriber, this, std::placeholders::_1));
-
-            RCLCPP_INFO(this->get_logger(), "Subscribed to /aruco_single/pose for vision_ctrl.");
             get_parameter("use_action_server", use_action_server_);
             RCLCPP_INFO(this->get_logger(), "Action server mode parameter: %s", use_action_server_ ? "true" : "false");
             action_active_ = !use_action_server_;
@@ -155,48 +144,22 @@ class Iiwa_pub_sub : public rclcpp::Node
             }
 
             iteration_ = 0; t_ = 0;
-            joint_state_available_ = false;
-            aruco_pose_available_ = false;
-            aruco_position_camera_.setZero(); 
+            joint_state_available_ = false; 
 
-            // retrieve robot_description from the /robot_description topic.
-            // This avoids blocking on the robot_state_publisher parameter service
-            // when ROS discovery is unstable.
-            std::string robot_description_xml;
-            std_msgs::msg::String robot_description_msg;
-
-            RCLCPP_INFO(this->get_logger(), "Waiting for /robot_description topic ...");
-            bool got_robot_description = rclcpp::wait_for_message<std_msgs::msg::String>(
-                robot_description_msg,
-                this->shared_from_this(),
-                "/robot_description",
-                std::chrono::seconds(10));
-
-            if (got_robot_description)
-            {
-                robot_description_xml = robot_description_msg.data;
-                RCLCPP_INFO(this->get_logger(), "Received robot_description from /robot_description topic.");
-            }
-            else
-            {
-                RCLCPP_WARN(this->get_logger(), "Could not read /robot_description topic. Trying /robot_state_publisher parameter service ...");
-
-                auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(this, "/robot_state_publisher");
-                while (!parameters_client->wait_for_service(1s)) {
-                    if (!rclcpp::ok()) {
-                        RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service. Exiting.");
-                        rclcpp::shutdown();
-                    }
-                    RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
+            // retrieve robot_description param
+            auto parameters_client = std::make_shared<rclcpp::SyncParametersClient>(this, "/robot_state_publisher");
+            while (!parameters_client->wait_for_service(1s)) {
+                if (!rclcpp::ok()) {
+                    RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service. Exiting.");
+                    rclcpp::shutdown();
                 }
-
-                auto parameter = parameters_client->get_parameters({"robot_description"});
-                robot_description_xml = parameter[0].value_to_string();
+                RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
             }
+            auto parameter = parameters_client->get_parameters({"robot_description"});
 
             // create KDLrobot structure
             KDL::Tree robot_tree;
-            if (!kdl_parser::treeFromString(robot_description_xml, robot_tree)){
+            if (!kdl_parser::treeFromString(parameter[0].value_to_string(), robot_tree)){
                 std::cout << "Failed to retrieve robot_description param!";
             }
             robot_ = std::make_shared<KDLRobot>(robot_tree);  
@@ -414,28 +377,7 @@ class Iiwa_pub_sub : public rclcpp::Node
                     robot_->getInverseKinematics(nextFrame, joint_positions_cmd_);
                 }
                 else if(cmd_interface_ == "velocity"){
-                    if (ctrl_ == "vision")
-                    {
-                        if (aruco_pose_available_)
-                        {
-                            joint_velocities_cmd_.data = controller_->vision_ctrl(aruco_position_camera_, Kp);
-                            RCLCPP_INFO_THROTTLE(
-                                this->get_logger(), *this->get_clock(), 1000,
-                                "vision_ctrl active: cPo=[%.3f, %.3f, %.3f], norm=%.3f",
-                                aruco_position_camera_(0),
-                                aruco_position_camera_(1),
-                                aruco_position_camera_(2),
-                                aruco_position_camera_.norm());
-                        }
-                        else
-                        {
-                            joint_velocities_cmd_.data = Eigen::VectorXd::Zero(robot_->getNrJnts());
-                            RCLCPP_WARN_THROTTLE(
-                                this->get_logger(), *this->get_clock(), 2000,
-                                "vision_ctrl selected, but /aruco_single/pose has not been received yet.");
-                        }
-                    }
-                    else if (ctrl_ == "velocity_ctrl_null")
+                    if (ctrl_ == "velocity_ctrl_null")
                     {
                         joint_velocities_cmd_.data = controller_->velocity_ctrl_null(p_.vel, error, Kp);
                     }
@@ -623,22 +565,6 @@ class Iiwa_pub_sub : public rclcpp::Node
             active_goal_.reset();
         }
 
-
-        void aruco_pose_subscriber(const geometry_msgs::msg::PoseStamped& pose_msg)
-        {
-            aruco_position_camera_(0) = pose_msg.pose.position.x;
-            aruco_position_camera_(1) = pose_msg.pose.position.y;
-            aruco_position_camera_(2) = pose_msg.pose.position.z;
-            aruco_pose_available_ = true;
-
-            RCLCPP_INFO_THROTTLE(
-                this->get_logger(), *this->get_clock(), 2000,
-                "Received ArUco pose: [%.3f, %.3f, %.3f]",
-                aruco_position_camera_(0),
-                aruco_position_camera_(1),
-                aruco_position_camera_(2));
-        }
-
         void joint_state_subscriber(const sensor_msgs::msg::JointState& sensor_msg){
 
             // for (size_t i = 0; i < sensor_msg.effort.size(); ++i) {
@@ -661,7 +587,6 @@ class Iiwa_pub_sub : public rclcpp::Node
         }
 
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSubscriber_;
-        rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr arucoSubscriber_;
         rclcpp::Publisher<FloatArray>::SharedPtr cmdPublisher_;
         rclcpp::TimerBase::SharedPtr timer_; 
         rclcpp::TimerBase::SharedPtr subTimer_;
@@ -687,7 +612,6 @@ class Iiwa_pub_sub : public rclcpp::Node
         bool joint_state_available_;
         bool use_action_server_;
         bool action_active_;
-        bool aruco_pose_available_;
         double t_;
         std::string cmd_interface_;
         std::string traj_type_;
@@ -704,8 +628,6 @@ class Iiwa_pub_sub : public rclcpp::Node
         double end_position_x_;
         double end_position_y_;
         double end_position_z_;
-
-        Eigen::Vector3d aruco_position_camera_;
 
         KDL::Frame init_cart_pose_;
 };
