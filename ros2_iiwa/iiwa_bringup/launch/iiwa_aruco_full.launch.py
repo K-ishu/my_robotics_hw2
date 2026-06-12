@@ -7,6 +7,9 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    marker_id = LaunchConfiguration("marker_id")
+    marker_size = LaunchConfiguration("marker_size")
+
     world_file = PathJoinSubstitution([
         FindPackageShare("iiwa_description"),
         "gazebo",
@@ -25,16 +28,18 @@ def generate_launch_description():
         "gazebo",
     ])
 
-    marker_id = LaunchConfiguration("marker_id")
-    marker_size = LaunchConfiguration("marker_size")
-
-    gz_sim = IncludeLaunchDescription(
+    iiwa_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            FindPackageShare("ros_gz_sim"),
-            "/launch/gz_sim.launch.py",
+            FindPackageShare("iiwa_bringup"),
+            "/launch/iiwa.launch.py",
         ]),
         launch_arguments={
-            "gz_args": ["-r -s -v 1 ", world_file],
+            "use_sim": "true",
+            "use_fake_hardware": "false",
+            "command_interface": "velocity",
+            "robot_controller": "velocity_controller",
+            "start_rviz": "false",
+            "gz_args": ["-r -v 4 ", world_file],
         }.items(),
     )
 
@@ -78,6 +83,17 @@ def generate_launch_description():
         ],
     )
 
+    vision_node = Node(
+        package="ros2_kdl_package",
+        executable="ros2_kdl_node",
+        name="ros2_kdl_node",
+        output="screen",
+        parameters=[{
+            "cmd_interface": "velocity",
+            "ctrl": "vision",
+        }],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("marker_id", default_value="26"),
         DeclareLaunchArgument("marker_size", default_value="0.20"),
@@ -93,8 +109,9 @@ def generate_launch_description():
             ],
         ),
 
-        gz_sim,
+        iiwa_launch,
         camera_bridge,
         TimerAction(period=5.0, actions=[set_pose_bridge]),
-        aruco_single,
+        TimerAction(period=6.0, actions=[aruco_single]),
+        TimerAction(period=8.0, actions=[vision_node]),
     ])
