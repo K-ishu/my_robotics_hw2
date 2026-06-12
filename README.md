@@ -1,4 +1,4 @@
-# Robotics Lab 2025 - Homework 2
+# Robotics Lab 2026 - Homework 2
 
 Student: Kishu  
 Repository: https://github.com/K-ishu/my_robotics_hw2
@@ -276,6 +276,44 @@ A second test position can be sent with:
         orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
       }
     }"
+
+
+
+
+    ## Integrated ArUco + Vision Control Launch
+
+A complete launch file was added to start:
+
+- IIWA simulation
+- Gazebo world
+- camera bridge
+- ArUco detection
+- vision controller
+
+Launch:
+
+    cd ~/ros2_hw2_ws
+    source install/setup.bash
+
+    ros2 launch iiwa_bringup iiwa_aruco_full.launch.py
+
+This launch file automatically starts:
+
+- Gazebo simulation
+- velocity controller
+- camera bridge
+- aruco_ros detector
+- ros2_kdl_node in vision mode
+
+The vision controller subscribes to:
+
+    /aruco_single/pose
+
+and publishes joint velocity commands to:
+
+    /velocity_controller/commands
+
+The detected ArUco pose is used as the visual target for the KDL-based vision controller.
 
 ## Useful Verification Commands
 
